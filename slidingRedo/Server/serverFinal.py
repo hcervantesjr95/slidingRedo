@@ -48,13 +48,17 @@ class Server():
     #########################Communication logic##########################
     def receivePackets(self):
         while(1):
-            packet, self.clientAddr = self.socket.recvfrom(2048)
-            if(packet == ""):
-                return "None", "Fail"
-            else:
-                header, payload, Hash = self.splitPacket(packet)
-                headerFields = self.splitHeader(header)
-                return packet, headerFields, Hash  
+            try:
+                self.socket.settimeout(300)
+                packet, self.clientAddr = self.socket.recvfrom(2048)
+                if(packet == ""):
+                    return "None", "Fail"
+                else:
+                    header, payload, Hash = self.splitPacket(packet)
+                    headerFields = self.splitHeader(header)
+                    return packet, headerFields, Hash
+            except timeout:
+                return "LOST", "LOST", "LOST"  
     
     def sendPackets(self, header, payload):
         packet = self.buildPacket(header, payload)
@@ -74,10 +78,11 @@ class Server():
                     self.fileName = header[2]
                     self.fileSize = self.getSize(self.fileName)
                     self.packetNumber = 0
-                    self.windowSize = 1 
+                    self.windowSize = 3 
                     header = self.buildHeader("SYN-ACK", "GET", self.fileName, self.fileSize, self.windowSize, self.packetNumber)
                     self.sendPackets(header, "READY TO SEND")
                     while(1):
+                        print("Waiting for ACK")
                         packet, header, HASH = self.receivePackets()
                         if(header[0] == "ACK"):
                             self.GET(header[2])
@@ -103,15 +108,48 @@ class Server():
 
 
     ########################### GET and PUT ############################
-    
-
+     
+    def resendWindow(self, window):
+        print(str(window))
+        for x in window:
+            self.socket.sendto(x, self.clientAddr)
                 
     def GET(self, fileName):
-        print("Getting file from server: " + fileName)
-        print("fileName: " + self.fileName)
-        print("file Size: " + str(self.fileSize))
-        print("window size: " + str(self.windowSize))
-        print("packetNumber: " + str(self.packetNumber))
+        file = open(fileName, "r")
+        done = False     
+        while(not done):
+            window = []
+            for x in range(0, self.windowSize):
+                payload = file.read(100)
+                header = self.buildHeader("DATA", "GET", self.fileName, self.fileSize, self.windowSize, self.packetNumber)
+                self.sendPackets(header, payload)
+                window.append(self.lastPcktSnt)
+                self.packetNumber += 1
+            
+            while(1):
+                packet, headerFields, HASH =  self.receivePackets() 
+                if(packet == "LOST"):
+                    file.close()
+                    done = True 
+                    break
+                elif(headerFields[0] == "ACK"):
+                    print(packet)
+                    #if expected ack got here continue, else disregard any other acks 
+                    print(headerFields[5] + " == "  + str(self.packetNumber))
+                    if(int(headerFields[5]) == self.packetNumber - 1):
+                        break
+                    else:
+                        continue 
+                elif(headerFields[0] == "CLOSE"):
+                    file.close()
+                    done = True 
+                    break
+                elif(headerFields[0] == "NAK"):
+                    print(str(window))
+                    self.resendWindow(window)
+                else:
+                    continue
+        self.reset()
     
     def PUT(self, fileName):
         print("Putting file on server")
@@ -122,6 +160,16 @@ class Server():
         print("packetNumber: " + str(self.packetNumber))
 
     ########################### server logic###########################
+    def reset(self):
+        self.clientAddr = None 
+        #globals
+        self.lastPcktSnt = ""
+        self.lastPcktRcvd = ""
+        self.packetNumber = 0
+        self.fileSize = 0
+        self.windowSize = 0
+        self.fileName = ""
+
     def start(self):
         self.listenHandshake()
 serverAddr = ("", 50000)
