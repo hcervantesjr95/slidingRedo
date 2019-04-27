@@ -1,5 +1,5 @@
 from socket import *
-import os, sys
+import os, sys, time 
 
 class Server():
 
@@ -125,30 +125,25 @@ class Server():
                 self.sendPackets(header, payload)
                 window.append(self.lastPcktSnt)
                 self.packetNumber += 1
-            
             while(1):
-                packet, headerFields, HASH =  self.receivePackets() 
-                if(packet == "LOST"):
-                    file.close()
-                    done = True 
-                    break
-                elif(headerFields[0] == "ACK"):
-                    print(packet)
-                    #if expected ack got here continue, else disregard any other acks 
-                    print(headerFields[5] + " == "  + str(self.packetNumber))
-                    if(int(headerFields[5]) == self.packetNumber - 1):
-                        break
+                packet, headerFields, HASH = self.receivePackets()
+                if(headerFields[0] == "ACK"):
+                    print("GOT ACK")
+                    if(int(headerFields[5]) == (self.packetNumber - 1)):
+                        print("GOT EXPECTED ACK" + headerFields[5])
+                        break 
                     else:
+                        print("Expected ACK for packet #: " + str(self.packetNumber - 1) + " got: " + headerFields[5])
+                        self.resendWindow(window)
                         continue 
+                elif(headerFields[0] == "NAK"):
+                    print("GOT NAK, RESENDING WINDOW")
+                    self.resendWindow(window)
                 elif(headerFields[0] == "CLOSE"):
+                    print("COSING CONNECTION")
                     file.close()
                     done = True 
                     break
-                elif(headerFields[0] == "NAK"):
-                    print(str(window))
-                    self.resendWindow(window)
-                else:
-                    continue
         self.reset()
     
     def PUT(self, fileName):
@@ -172,7 +167,7 @@ class Server():
 
     def start(self):
         self.listenHandshake()
-serverAddr = ("", 50000)
+serverAddr = ("", 50001)
 
 
 serverSocket = socket(AF_INET, SOCK_DGRAM)

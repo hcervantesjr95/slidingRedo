@@ -47,7 +47,7 @@ class Client():
     def receivePackets(self):
         while(1):
             try:
-                self.socket.settimeout(20)
+                self.socket.settimeout(1)
                 packet, self.serverAddr = self.socket.recvfrom(2048)
                 if(packet == ""):
                     return "None", "Fail", "None"
@@ -120,42 +120,41 @@ class Client():
             packet, headerFields, HASH = self.receivePackets()
             if(packet in recPackets):
                 continue
-            if(packet == "None"):
-                break 
             if(headerFields[0] == "DATA"):
-                # expected packet was not recieved, ask sender to resend packet, to window size
+                header, payload, HASH = self.splitPacket(packet)
                 if(self.packetNumber == int(headerFields[5])):
-                    header, payload, HASH = self.splitPacket(packet)
-                    # check if payload integrity was not lost
-                    if(HASH == str(abs(hash(payload)))):
-                        payload = payload.rstrip()
+                    print("PACKETS MATCH")
+                    if(int(HASH) == abs(hash(payload))):
+                        print("PACKET IS NOT CORRUPTED")
                         file.write(payload)
-                        if(windowCounter == (int(headerFields[4]) - 1)):
-                            if(self.fileSize <= byteCounter):
-                                header = self.buildHeader("CLOSE", "GET", self.fileName, self.fileSize, self.windowSize, self.packetNumber)
-                                self.sendPackets(header, "DONE!")
-                                windowCounter = 0
-                                break 
-                            else:
-                                print("windowCounter: " + str(windowCounter))
-                                header = self.buildHeader("ACK", "GET", self.fileName, self.fileSize, self.windowSize, self.packetNumber)
-                                self.sendPackets(header, "Got It!")
-                                windowCounter = 0
-                        windowCounter += 1
-                        byteCounter += 100
+                        byteCounter += 100 
                         recPackets.append(packet)
-                        self.packetNumber += 1
+                        if(byteCounter > self.fileSize):
+                            print("GOT ALL BYTES, CLOSING CONNECTION")
+                            self.packetNumber = int(headerFields[5])
+                            header = self.buildHeader("CLOSE", "GET", fileName, self.fileSize, self.windowSize, self.packetNumber)
+                            self.sendPackets(header, "DONE!")
+                            file.close()
+                            break
+                        elif(windowCounter == self.windowSize - 1):
+                            print("GOT WINDOW, SENDING ACK")
+                            self.packetNumber = int(headerFields[5])
+                            header = self.buildHeader("ACK", "GET", fileName, self.fileSize, self.windowSize, self.packetNumber)
+                            self.sendPackets(header, "DONE!")
+                            self.packetNumber = int(headerFields[5]) + 1
+                            windowCounter = 0
+                        else:
+                            self.packetNumber = int(headerFields[5]) + 1
+                            windowCounter += 1  
                     else:
-                        header = self.buildHeader("NAK", "GET", self.fileName, self.fileSize, self.windowSize, self.packetNumber)
-                        self.sendPackets(header, "Payload Corrupted")
+                        print("PACKET #: " + headerFields[5] + "is corrupted")
+                        header = self.buildHeader("NAK", "GET", fileName, self.fileSize, self.windowSize, self.packetNumber)
+                        self.sendPackets(header, "Payload Corrupted!")
                 else:
-                    header = self.buildHeader("NAK", "GET", self.fileName, self.fileSize, self.windowSize, self.packetNumber)
-                    self.sendPackets(header, "Did not get It!")
-                    print("missing packet #:" + str(self.packetNumber))
-            elif(headerFields[0] == "NAK"):
-                    self.socket.sendto(self.lastPcktSnt, self.serverAddr)
-            else: 
-                continue
+                    print("PACKET expected packet #: " + str(self.packetNumber) + "got packet #: " + headerFields[5])
+                    header = self.buildHeader("NAK", "GET", fileName, self.fileSize, self.windowSize, self.packetNumber)
+                    self.sendPackets(header, "Missing Packet #: " + str(self.packetNumber))
+                print("EXPECTING PACKET #: " + str(self.packetNumber))
         self.reset()
 
 
