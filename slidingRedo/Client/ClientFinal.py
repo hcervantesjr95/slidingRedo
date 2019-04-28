@@ -1,5 +1,5 @@
 from socket import *
-import os, sys
+import os, sys, time 
 
 class Client():
 
@@ -18,14 +18,15 @@ class Client():
     def buildPacket(self, header, payload):
         return header + "******" + payload
     
-    def buildHeader(self, packetType, action, fileName, fileSize, windowSize, packetNumber):
+    def buildHeader(self, packetType, action, fileName, fileSize, windowSize, packetNumber, time):
         return(
             packetType + "*" +
             action + "*" +
             fileName + "*" +
             str(fileSize) + "*" +
             str(windowSize) + "*" +
-            str(packetNumber)
+            str(packetNumber) + "*" + 
+            str(time)
         )
     def splitPacket(self, packet):
         header, payload, HASH = packet.split("******")
@@ -72,12 +73,12 @@ class Client():
             self.fileSize = self.getSize(self.fileName)
             self.windowSize = 1
             self.packetNumber = 0
-            header = self.buildHeader("SYN", "PUT", self.fileName, self.fileSize, self.windowSize, self.packetNumber)
+            header = self.buildHeader("SYN", "PUT", self.fileName, self.fileSize, self.windowSize, self.packetNumber, time.time())
             self.sendPackets(header, "Hello")
             while(1):
                 packet, headerFields, HASH = self.receivePackets()
                 if(headerFields[0] == "SYN-ACK"):
-                    header = self.buildHeader("ACK", "PUT", self.fileName, self.fileSize, self.windowSize, self.packetNumber)
+                    header = self.buildHeader("ACK", "PUT", self.fileName, self.fileSize, self.windowSize, self.packetNumber, time.time())
                     self.sendPackets(header, "Ready to Recieve")
                     return 
                 else:
@@ -85,7 +86,7 @@ class Client():
         elif(command == "GET"):
             print("Starting Handshake GET")
             self.fileName = fileName
-            header = self.buildHeader("SYN", "GET", self.fileName, 0, 0, 0)
+            header = self.buildHeader("SYN", "GET", self.fileName, 0, 0, 0, time.time())
             # sending START Packet
             self.sendPackets(header, "Hello")
             while(1):
@@ -97,7 +98,7 @@ class Client():
                     self.fileSize = int(headerFields[3])
                     self.windowSize = int(headerFields[4])
                     self.packetNumber = int(headerFields[5])
-                    header = self.buildHeader("ACK", "GET",fileName, headerFields[3], 1, 0)
+                    header = self.buildHeader("ACK", "GET",fileName, headerFields[3], 1, 0, time.time())
                     self.sendPackets(header, "READY")
                     return 
                 else:
@@ -132,14 +133,14 @@ class Client():
                         if(byteCounter > self.fileSize):
                             print("GOT ALL BYTES, CLOSING CONNECTION")
                             self.packetNumber = int(headerFields[5])
-                            header = self.buildHeader("CLOSE", "GET", fileName, self.fileSize, self.windowSize, self.packetNumber)
+                            header = self.buildHeader("CLOSE", "GET", fileName, self.fileSize, self.windowSize, self.packetNumber, time.time())
                             self.sendPackets(header, "DONE!")
                             file.close()
                             break
                         elif(windowCounter == self.windowSize - 1):
-                            print("GOT WINDOW, SENDING ACK")
+                            print("GOT WINDOW, SENDING ACK for" + str(self.packetNumber))
                             self.packetNumber = int(headerFields[5])
-                            header = self.buildHeader("ACK", "GET", fileName, self.fileSize, self.windowSize, self.packetNumber)
+                            header = self.buildHeader("ACK", "GET", fileName, self.fileSize, self.windowSize, self.packetNumber, time.time())
                             self.sendPackets(header, "DONE!")
                             self.packetNumber = int(headerFields[5]) + 1
                             windowCounter = 0
@@ -148,11 +149,11 @@ class Client():
                             windowCounter += 1  
                     else:
                         print("PACKET #: " + headerFields[5] + "is corrupted")
-                        header = self.buildHeader("NAK", "GET", fileName, self.fileSize, self.windowSize, self.packetNumber)
+                        header = self.buildHeader("NAK", "GET", fileName, self.fileSize, self.windowSize, self.packetNumber, time.time())
                         self.sendPackets(header, "Payload Corrupted!")
                 else:
                     print("PACKET expected packet #: " + str(self.packetNumber) + "got packet #: " + headerFields[5])
-                    header = self.buildHeader("NAK", "GET", fileName, self.fileSize, self.windowSize, self.packetNumber)
+                    header = self.buildHeader("NAK", "GET", fileName, self.fileSize, self.windowSize, self.packetNumber, time.time())
                     self.sendPackets(header, "Missing Packet #: " + str(self.packetNumber))
                 print("EXPECTING PACKET #: " + str(self.packetNumber))
         self.reset()

@@ -20,14 +20,15 @@ class Server():
     def buildPacket(self, header, payload):
         return header + "******" + payload
     
-    def buildHeader(self, packetType, action, fileName, fileSize, windowSize, packetNumber):
+    def buildHeader(self, packetType, action, fileName, fileSize, windowSize, packetNumber, time):
         return(
             packetType + "*" +
             action + "*" +
             fileName + "*" +
             str(fileSize) + "*" +
             str(windowSize) + "*" +
-            str(packetNumber)
+            str(packetNumber) + "*" + 
+            str(time)
         )
     def splitPacket(self, packet):
         header, payload, HASH = packet.split("******")
@@ -78,8 +79,8 @@ class Server():
                     self.fileName = header[2]
                     self.fileSize = self.getSize(self.fileName)
                     self.packetNumber = 0
-                    self.windowSize = 3 
-                    header = self.buildHeader("SYN-ACK", "GET", self.fileName, self.fileSize, self.windowSize, self.packetNumber)
+                    self.windowSize = 5
+                    header = self.buildHeader("SYN-ACK", "GET", self.fileName, self.fileSize, self.windowSize, self.packetNumber, time.time())
                     self.sendPackets(header, "READY TO SEND")
                     while(1):
                         print("Waiting for ACK")
@@ -94,7 +95,7 @@ class Server():
                     self.fileSize = int(header[3])
                     self.windowSize = int(header[4])
                     self.packetNumber = int(header[5])
-                    header = self.buildHeader("SYN-ACK", "PUT", self.fileName, self.fileSize, self.windowSize , self.packetNumber)
+                    header = self.buildHeader("SYN-ACK", "PUT", self.fileName, self.fileSize, self.windowSize , self.packetNumber, time.time())
                     self.sendPackets(header, "READY TO RECIEVE")
                     while(1):
                         packet, header, HASH = self.receivePackets()
@@ -108,11 +109,20 @@ class Server():
 
 
     ########################### GET and PUT ############################
-     
+    
+    def delayed(self, timeSent):
+        t = time.time() - float(timeSent)
+        maxTime = .03
+        if(t <= maxTime):
+            return True 
+        else:
+            return False
+    
     def resendWindow(self, window):
-        print(str(window))
-        for x in window:
-            self.socket.sendto(x, self.clientAddr)
+            for x in window:
+                print(x)
+                self.socket.sendto(x, self.clientAddr)
+
                 
     def GET(self, fileName):
         file = open(fileName, "r")
@@ -121,9 +131,9 @@ class Server():
             window = []
             for x in range(0, self.windowSize):
                 payload = file.read(100)
-                header = self.buildHeader("DATA", "GET", self.fileName, self.fileSize, self.windowSize, self.packetNumber)
+                header = self.buildHeader("DATA", "GET", self.fileName, self.fileSize, self.windowSize, self.packetNumber, time.time())
                 self.sendPackets(header, payload)
-                window.append(self.lastPcktSnt)
+                window.insert(x, self.lastPcktSnt)
                 self.packetNumber += 1
             while(1):
                 packet, headerFields, HASH = self.receivePackets()
@@ -131,13 +141,14 @@ class Server():
                     print("GOT ACK")
                     if(int(headerFields[5]) == (self.packetNumber - 1)):
                         print("GOT EXPECTED ACK" + headerFields[5])
-                        break 
+                        break  
                     else:
                         print("Expected ACK for packet #: " + str(self.packetNumber - 1) + " got: " + headerFields[5])
                         self.resendWindow(window)
-                        continue 
+                        
                 elif(headerFields[0] == "NAK"):
-                    print("GOT NAK, RESENDING WINDOW")
+                    #print("GOT NAK, RESENDING WINDOW")
+                    print(str(headerFields[6]))
                     self.resendWindow(window)
                 elif(headerFields[0] == "CLOSE"):
                     print("COSING CONNECTION")
