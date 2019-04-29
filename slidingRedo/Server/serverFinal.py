@@ -158,12 +158,52 @@ class Server():
         self.reset()
     
     def PUT(self, fileName):
-        print("Putting file on server")
-        print("Getting file from server: " + fileName)
-        print("fileName: " + self.fileName)
-        print("file Size: " + str(self.fileSize))
-        print("window size: " + str(self.windowSize))
-        print("packetNumber: " + str(self.packetNumber))
+        print("Getting file from client")
+        file = open(fileName, "w+")
+        windowCounter = 0
+        byteCounter = 0
+        recPackets = []
+        self.socket.settimeout(1) 
+        while(1):
+            packet, headerFields, HASH = self.receivePackets()
+            if(packet in recPackets):
+                continue
+            if(headerFields[0] == "DATA"):
+                header, payload, HASH = self.splitPacket(packet)
+                if(self.packetNumber == int(headerFields[5])):
+                    print("PACKETS MATCH")
+                    if(int(HASH) == abs(hash(payload))):
+                        print("PACKET IS NOT CORRUPTED")
+                        file.write(payload)
+                        byteCounter += 100 
+                        recPackets.append(packet)
+                        if(byteCounter > self.fileSize):
+                            print("GOT ALL BYTES, CLOSING CONNECTION")
+                            self.packetNumber = int(headerFields[5])
+                            header = self.buildHeader("CLOSE", "GET", fileName, self.fileSize, self.windowSize, self.packetNumber, time.time())
+                            self.sendPackets(header, "DONE!")
+                            file.close()
+                            break
+                        elif(windowCounter == self.windowSize - 1):
+                            print("GOT WINDOW, SENDING ACK for" + str(self.packetNumber))
+                            self.packetNumber = int(headerFields[5])
+                            header = self.buildHeader("ACK", "GET", fileName, self.fileSize, self.windowSize, self.packetNumber, time.time())
+                            self.sendPackets(header, "DONE!")
+                            self.packetNumber = int(headerFields[5]) + 1
+                            windowCounter = 0
+                        else:
+                            self.packetNumber = int(headerFields[5]) + 1
+                            windowCounter += 1  
+                    else:
+                        print("PACKET #: " + headerFields[5] + "is corrupted")
+                        header = self.buildHeader("NAK", "GET", fileName, self.fileSize, self.windowSize, self.packetNumber, time.time())
+                        self.sendPackets(header, "Payload Corrupted!")
+                else:
+                    print("PACKET expected packet #: " + str(self.packetNumber) + "got packet #: " + headerFields[5])
+                    header = self.buildHeader("NAK", "GET", fileName, self.fileSize, self.windowSize, self.packetNumber, time.time())
+                    self.sendPackets(header, "Missing Packet #: " + str(self.packetNumber))
+                print("EXPECTING PACKET #: " + str(self.packetNumber))
+        self.reset()
 
     ########################### server logic###########################
     def reset(self):
@@ -178,7 +218,7 @@ class Server():
 
     def start(self):
         self.listenHandshake()
-serverAddr = ("", 50001)
+serverAddr = ("", 50000)
 
 
 serverSocket = socket(AF_INET, SOCK_DGRAM)

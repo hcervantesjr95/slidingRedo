@@ -48,7 +48,6 @@ class Client():
     def receivePackets(self):
         while(1):
             try:
-                self.socket.settimeout(1)
                 packet, self.serverAddr = self.socket.recvfrom(2048)
                 if(packet == ""):
                     return "None", "Fail", "None"
@@ -110,13 +109,27 @@ class Client():
         for x in files:
             self.GET(x)
 
+    def delayed(self, timeSent):
+        t = time.time() - float(timeSent)
+        maxTime = .03
+        if(t <= maxTime):
+            return True 
+        else:
+            return False
+    
+    def resendWindow(self, window):
+            for x in window:
+                print(x)
+                self.socket.sendto(x, self.clientAddr)
+
     def GET(self, fileName):
         print("Getting file from server")
         self.startHandshake(fileName, "GET")
         file = open(fileName, "w+")
         windowCounter = 0
         byteCounter = 0
-        recPackets = [] 
+        recPackets = []
+        self.socket.settimeout(1) 
         while(1):
             packet, headerFields, HASH = self.receivePackets()
             if(packet in recPackets):
@@ -165,14 +178,39 @@ class Client():
             self.PUT(x)
 
     def PUT(self, fileName):
-        print("Putting file on server")
         self.startHandshake(fileName, "PUT")
-        print("handshake successful")
-        print("Getting file from server: " + fileName)
-        print("fileName: " + self.fileName)
-        print("file Size: " + str(self.fileSize))
-        print("window size: " + str(self.windowSize))
-        print("packetNumber: " + str(self.packetNumber))
+        print("putting file on server")
+        file = open(fileName, "r")
+        done = False     
+        while(not done):
+            window = []
+            for x in range(0, self.windowSize):
+                payload = file.read(100)
+                header = self.buildHeader("DATA", "GET", self.fileName, self.fileSize, self.windowSize, self.packetNumber, time.time())
+                self.sendPackets(header, payload)
+                window.insert(x, self.lastPcktSnt)
+                self.packetNumber += 1
+            while(1):
+                packet, headerFields, HASH = self.receivePackets()
+                if(headerFields[0] == "ACK"):
+                    print("GOT ACK")
+                    if(int(headerFields[5]) == (self.packetNumber - 1)):
+                        print("GOT EXPECTED ACK" + headerFields[5])
+                        break  
+                    else:
+                        print("Expected ACK for packet #: " + str(self.packetNumber - 1) + " got: " + headerFields[5])
+                        self.resendWindow(window)
+                        
+                elif(headerFields[0] == "NAK"):
+                    #print("GOT NAK, RESENDING WINDOW")
+                    print(str(headerFields[6]))
+                    self.resendWindow(window)
+                elif(headerFields[0] == "CLOSE"):
+                    print("COSING CONNECTION")
+                    file.close()
+                    done = True 
+                    break
+        self.reset()
 
     ########################### client logic###########################
     def reset(self):
@@ -193,8 +231,8 @@ class Client():
         return 
 
 serverAddr = ("localhost", 50000)
-files = ["hamlet.txt"]
-command = "GET"
+files = ["hamlet.txt", "othello.txt"]
+command = "PUT"
 clientSocket = socket(AF_INET, SOCK_DGRAM)
 client = Client(clientSocket, serverAddr)
 client.start(files, command)
