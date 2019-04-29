@@ -231,8 +231,9 @@ class Client():
         return 
 
 serverAddr = ("localhost", 50000)
-files = ["hamlet.txt", "othello.txt"]
-command = "PUT"
+files = raw_input("Please enter the name of the text files you want to GET or PUT: \n")
+files = files.split(" ")
+command = raw_input("Please enter the name of the command you want to execute: GET or PUT: \n")
 clientSocket = socket(AF_INET, SOCK_DGRAM)
 client = Client(clientSocket, serverAddr)
 client.start(files, command)
