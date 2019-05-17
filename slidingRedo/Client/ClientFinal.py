@@ -13,6 +13,7 @@ class Client():
         self.fileSize = 0
         self.windowSize = 0
         self.fileName = ""
+        self.rtt = []
 
     ########################Protocol logic################################
     def buildPacket(self, header, payload):
@@ -70,7 +71,7 @@ class Client():
         if(command == "PUT"):
             self.fileName = fileName
             self.fileSize = self.getSize(self.fileName)
-            self.windowSize = 1
+            self.windowSize = 5
             self.packetNumber = 0
             header = self.buildHeader("SYN", "PUT", self.fileName, self.fileSize, self.windowSize, self.packetNumber, time.time())
             self.sendPackets(header, "Hello")
@@ -120,7 +121,7 @@ class Client():
     def resendWindow(self, window):
             for x in window:
                 print(x)
-                self.socket.sendto(x, self.clientAddr)
+                self.socket.sendto(x, self.serverAddr)
 
     def GET(self, fileName):
         print("Getting file from server")
@@ -129,7 +130,8 @@ class Client():
         windowCounter = 0
         byteCounter = 0
         recPackets = []
-        self.socket.settimeout(1) 
+        self.socket.settimeout(.002) 
+        startGET = time.time()
         while(1):
             packet, headerFields, HASH = self.receivePackets()
             if(packet in recPackets):
@@ -146,8 +148,13 @@ class Client():
                         if(byteCounter > self.fileSize):
                             print("GOT ALL BYTES, CLOSING CONNECTION")
                             self.packetNumber = int(headerFields[5])
+                            time.sleep(.1)
                             header = self.buildHeader("CLOSE", "GET", fileName, self.fileSize, self.windowSize, self.packetNumber, time.time())
                             self.sendPackets(header, "DONE!")
+                            while(1):
+                                packet, headerFields, HASH = self.receivePackets()
+                                if(headerFields[0] == "ACK"):
+                                    break
                             file.close()
                             break
                         elif(windowCounter == self.windowSize - 1):
@@ -170,6 +177,8 @@ class Client():
                     self.sendPackets(header, "Missing Packet #: " + str(self.packetNumber))
                 print("EXPECTING PACKET #: " + str(self.packetNumber))
         self.reset()
+        endGET = time.time()
+        print("Total Time: " + str(endGET - startGET))
 
 
     
@@ -178,23 +187,30 @@ class Client():
             self.PUT(x)
 
     def PUT(self, fileName):
+        self.socket.settimeout(5)
         self.startHandshake(fileName, "PUT")
         print("putting file on server")
         file = open(fileName, "r")
         done = False     
         while(not done):
             window = []
+            start = time.time()
             for x in range(0, self.windowSize):
                 payload = file.read(100)
-                header = self.buildHeader("DATA", "GET", self.fileName, self.fileSize, self.windowSize, self.packetNumber, time.time())
+                header = self.buildHeader("DATA", "PUT", self.fileName, self.fileSize, self.windowSize, self.packetNumber, time.time())
                 self.sendPackets(header, payload)
                 window.insert(x, self.lastPcktSnt)
                 self.packetNumber += 1
             while(1):
+                self.socket.settimeout(10)
                 packet, headerFields, HASH = self.receivePackets()
+                if(packet == "LOST"):
+                    Done = True
+                    break 
                 if(headerFields[0] == "ACK"):
-                    print("GOT ACK")
                     if(int(headerFields[5]) == (self.packetNumber - 1)):
+                        end = time.time()
+                        self.rtt.append(end - start)
                         print("GOT EXPECTED ACK" + headerFields[5])
                         break  
                     else:
@@ -207,12 +223,23 @@ class Client():
                     self.resendWindow(window)
                 elif(headerFields[0] == "CLOSE"):
                     print("COSING CONNECTION")
+                    for x in range(0, 5):
+                        time.sleep(.002)
+                        self.socket.sendto(self.lastPcktSnt, self.serverAddr)
                     file.close()
                     done = True 
                     break
+        self.getRTTAVG()
         self.reset()
 
     ########################### client logic###########################
+    def getRTTAVG(self):
+        sum = 0
+        for x in range(0, len(self.rtt)):
+            sum += self.rtt[x]
+        avg = sum / len(self.rtt)
+        print("Average RTT time: " + str(avg))
+        return 
     def reset(self):
         self.lastPcktSnt = ""
         self.lastPcktRcvd = ""
@@ -220,6 +247,7 @@ class Client():
         self.fileSize = 0
         self.windowSize = 0
         self.fileName = ""
+        self.rtt = []
     
     def start(self, files, command):
         if(command == "GET"):
@@ -230,7 +258,7 @@ class Client():
             print("Command not found")
         return 
 
-serverAddr = ("localhost", 50000)
+serverAddr = ("localhost", 50001)
 files = raw_input("Please enter the name of the text files you want to GET or PUT: \n")
 files = files.split(" ")
 command = raw_input("Please enter the name of the command you want to execute: GET or PUT: \n")
